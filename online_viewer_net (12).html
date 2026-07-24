@@ -1,0 +1,524 @@
+Put your HTML text <!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Turbo Racer - Arcade Edition</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background: #0d0f18;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      color: #fff;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      overflow: hidden;
+    }
+
+    #game-container {
+      position: relative;
+      width: 480px;
+      height: 640px;
+      background: #111;
+      border: 4px solid #00f0ff;
+      border-radius: 12px;
+      box-shadow: 0 0 30px rgba(0, 240, 255, 0.4);
+      overflow: hidden;
+    }
+
+    canvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+    }
+
+    /* Overlay Screen Styling */
+    .overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(10, 12, 24, 0.88);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 20px;
+      z-index: 10;
+    }
+
+    .title {
+      font-size: 38px;
+      font-weight: 900;
+      letter-spacing: 2px;
+      color: #fff;
+      text-shadow: 0 0 10px #ff0055, 0 0 20px #ff0055;
+      margin-bottom: 10px;
+    }
+
+    .subtitle {
+      font-size: 14px;
+      color: #a0a5c0;
+      margin-bottom: 25px;
+    }
+
+    .btn {
+      background: linear-gradient(135deg, #ff0055, #ff5500);
+      color: #fff;
+      border: none;
+      padding: 14px 36px;
+      font-size: 18px;
+      font-weight: bold;
+      border-radius: 30px;
+      cursor: pointer;
+      box-shadow: 0 5px 15px rgba(255, 0, 85, 0.4);
+      transition: all 0.2s ease;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+
+    .btn:hover {
+      transform: translateY(-2px) scale(1.05);
+      box-shadow: 0 8px 25px rgba(255, 0, 85, 0.6);
+    }
+
+    .controls-hint {
+      margin-top: 30px;
+      font-size: 13px;
+      color: #6c7293;
+    }
+
+    /* HUD Styling */
+    #hud {
+      position: absolute;
+      top: 15px;
+      left: 15px;
+      right: 15px;
+      display: flex;
+      justify-content: space-between;
+      z-index: 5;
+      pointer-events: none;
+    }
+
+    .hud-card {
+      background: rgba(0, 0, 0, 0.65);
+      backdrop-filter: blur(5px);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      padding: 8px 16px;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: bold;
+      letter-spacing: 1px;
+    }
+
+    .hud-card span {
+      color: #00f0ff;
+    }
+
+    #level-popup {
+      position: absolute;
+      top: 40%;
+      width: 100%;
+      text-align: center;
+      font-size: 42px;
+      font-weight: 900;
+      color: #ffe600;
+      text-shadow: 0 0 15px rgba(255, 230, 0, 0.8);
+      opacity: 0;
+      transition: opacity 0.5s ease;
+      z-index: 8;
+      pointer-events: none;
+    }
+  </style>
+</head>
+<body>
+
+  <div id="game-container">
+    <div id="hud">
+      <div class="hud-card">SCORE: <span id="score-val">0</span></div>
+      <div class="hud-card">LEVEL: <span id="level-val">1</span></div>
+      <div class="hud-card">SPEED: <span id="speed-val">100</span> km/h</div>
+    </div>
+
+    <div id="level-popup">LEVEL UP!</div>
+
+    <canvas id="gameCanvas" width="480" height="640"></canvas>
+
+    <!-- Start Overlay -->
+    <div id="start-screen" class="overlay">
+      <div class="title">TURBO RACER</div>
+      <div class="subtitle">Dodge traffic, level up, and set high scores!</div>
+      <button class="btn" onclick="startGame()">START GAME</button>
+      <div class="controls-hint">Controls: Left / Right Arrow Keys or A / D</div>
+    </div>
+
+    <!-- Game Over Overlay -->
+    <div id="gameover-screen" class="overlay" style="display: none;">
+      <div class="title" style="text-shadow: 0 0 10px #ff0000;">CRASHED!</div>
+      <div class="subtitle" id="final-stats">Score: 0 | Level: 1</div>
+      <button class="btn" onclick="startGame()">TRY AGAIN</button>
+    </div>
+  </div>
+
+  <script>
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+
+    // UI Elements
+    const scoreVal = document.getElementById('score-val');
+    const levelVal = document.getElementById('level-val');
+    const speedVal = document.getElementById('speed-val');
+    const levelPopup = document.getElementById('level-popup');
+    const startScreen = document.getElementById('start-screen');
+    const gameoverScreen = document.getElementById('gameover-screen');
+    const finalStats = document.getElementById('final-stats');
+
+    // Web Audio API Setup
+    let audioCtx = null;
+    let engineOsc = null;
+    let engineGain = null;
+
+    function initAudio() {
+      if (!audioCtx) {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      }
+      if (audioCtx.state === 'suspended') {
+        audioCtx.resume();
+      }
+    }
+
+    function startEngineSound() {
+      if (!audioCtx) return;
+      
+      // Engine roar oscillator
+      engineOsc = audioCtx.createOscillator();
+      engineGain = audioCtx.createGain();
+
+      engineOsc.type = 'sawtooth';
+      engineOsc.frequency.setValueAtTime(60, audioCtx.currentTime); // Base engine hum
+
+      engineGain.gain.setValueAtTime(0.05, audioCtx.currentTime);
+
+      engineOsc.connect(engineGain);
+      engineGain.connect(audioCtx.destination);
+      engineOsc.start();
+    }
+
+    function updateEngineSound(speed) {
+      if (engineOsc && audioCtx) {
+        // Pitch rises with game speed
+        const pitch = 50 + speed * 8;
+        engineOsc.frequency.setTargetAtTime(pitch, audioCtx.currentTime, 0.1);
+      }
+    }
+
+    function stopEngineSound() {
+      if (engineOsc) {
+        engineOsc.stop();
+        engineOsc.disconnect();
+        engineOsc = null;
+      }
+    }
+
+    function playCrashSound() {
+      if (!audioCtx) return;
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+
+      osc.type = 'square';
+      osc.frequency.setValueAtTime(120, audioCtx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(20, audioCtx.currentTime + 0.5);
+
+      gain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.5);
+
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+
+      osc.start();
+      osc.stop(audioCtx.currentTime + 0.5);
+    }
+
+    function playLevelUpSound() {
+      if (!audioCtx) return;
+      const notes = [261.63, 329.63, 392.00, 523.25]; // C5 chime
+      notes.forEach((freq, idx) => {
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(freq, audioCtx.currentTime + idx * 0.08);
+
+        gain.gain.setValueAtTime(0.1, audioCtx.currentTime + idx * 0.08);
+        gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + idx * 0.08 + 0.2);
+
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+
+        osc.start(audioCtx.currentTime + idx * 0.08);
+        osc.stop(audioCtx.currentTime + idx * 0.08 + 0.2);
+      });
+    }
+
+    // Game Variables
+    let isRunning = false;
+    let score = 0;
+    let level = 1;
+    let baseSpeed = 5;
+    let gameSpeed = 5;
+    let trackOffset = 0;
+
+    // Player Car
+    const player = {
+      x: canvas.width / 2 - 20,
+      y: canvas.height - 120,
+      width: 40,
+      height: 70,
+      speed: 7,
+      dx: 0,
+      color: '#ff0055'
+    };
+
+    // Controls
+    const keys = { left: false, right: false };
+
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') keys.left = true;
+      if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') keys.right = true;
+    });
+
+    window.addEventListener('keyup', (e) => {
+      if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'A') keys.left = false;
+      if (e.key === 'ArrowRight' || e.key === 'd' || e.key === 'D') keys.right = false;
+    });
+
+    // Traffic Cars
+    let traffic = [];
+    const trafficColors = ['#00f0ff', '#ffe600', '#00ff66', '#a100ff'];
+
+    function spawnTraffic() {
+      const roadWidth = 260;
+      const roadLeft = (canvas.width - roadWidth) / 2;
+      const lanes = [
+        roadLeft + 20,
+        roadLeft + 85,
+        roadLeft + 150,
+        roadLeft + 200
+      ];
+
+      const lane = lanes[Math.floor(Math.random() * lanes.length)];
+      const color = trafficColors[Math.floor(Math.random() * trafficColors.length)];
+
+      // Prevent overlapping on spawn
+      for (let car of traffic) {
+        if (Math.abs(car.y - (-100)) < 150 && car.x === lane) return;
+      }
+
+      traffic.push({
+        x: lane,
+        y: -100,
+        width: 40,
+        height: 70,
+        speed: 2 + Math.random() * 2,
+        color: color
+      });
+    }
+
+    // Drawing Functions
+    function drawRoad() {
+      const roadWidth = 280;
+      const roadLeft = (canvas.width - roadWidth) / 2;
+
+      // Grass / Shoulders
+      ctx.fillStyle = '#1a2035';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      // Main Road Surface
+      ctx.fillStyle = '#222533';
+      ctx.fillRect(roadLeft, 0, roadWidth, canvas.height);
+
+      // Road Borders
+      ctx.fillStyle = '#ff0055';
+      ctx.fillRect(roadLeft - 10, 0, 10, canvas.height);
+      ctx.fillRect(roadLeft + roadWidth, 0, 10, canvas.height);
+
+      // Animated Center Strips
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 4;
+      ctx.setLineDash([30, 30]);
+      ctx.lineDashOffset = -trackOffset;
+
+      // Draw two lane dividers
+      ctx.beginPath();
+      ctx.moveTo(roadLeft + roadWidth / 3, 0);
+      ctx.lineTo(roadLeft + roadWidth / 3, canvas.height);
+      ctx.moveTo(roadLeft + (roadWidth / 3) * 2, 0);
+      ctx.lineTo(roadLeft + (roadWidth / 3) * 2, canvas.height);
+      ctx.stroke();
+
+      ctx.setLineDash([]); // Reset line dash
+    }
+
+    function drawCar(x, y, width, height, color, isPlayer = false) {
+      // Body
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.roundRect(x, y, width, height, 8);
+      ctx.fill();
+
+      // Roof / Windshield
+      ctx.fillStyle = '#111';
+      ctx.fillRect(x + 5, y + (isPlayer ? 18 : 25), width - 10, 20);
+
+      // Wheels
+      ctx.fillStyle = '#000';
+      ctx.fillRect(x - 4, y + 8, 4, 14);
+      ctx.fillRect(x + width, y + 8, 4, 14);
+      ctx.fillRect(x - 4, y + height - 22, 4, 14);
+      ctx.fillRect(x + width, y + height - 22, 4, 14);
+
+      // Lights
+      if (isPlayer) {
+        // Headlights (top)
+        ctx.fillStyle = '#ffff99';
+        ctx.fillRect(x + 4, y + 2, 8, 5);
+        ctx.fillRect(x + width - 12, y + 2, 8, 5);
+      } else {
+        // Taillights (bottom)
+        ctx.fillStyle = '#ff0000';
+        ctx.fillRect(x + 4, y + height - 7, 8, 5);
+        ctx.fillRect(x + width - 12, y + height - 7, 8, 5);
+      }
+    }
+
+    // Core Game Mechanics
+    function update() {
+      if (!isRunning) return;
+
+      // Handle player movement
+      if (keys.left) player.x -= player.speed;
+      if (keys.right) player.x += player.speed;
+
+      // Keep player inside road limits
+      const roadWidth = 280;
+      const roadLeft = (canvas.width - roadWidth) / 2;
+      if (player.x < roadLeft) player.x = roadLeft;
+      if (player.x + player.width > roadLeft + roadWidth) player.x = roadLeft + roadWidth - player.width;
+
+      // Move track visual lines
+      trackOffset += gameSpeed;
+      if (trackOffset > 60) trackOffset = 0;
+
+      // Manage score & leveling
+      score++;
+      scoreVal.innerText = score;
+
+      // Level progression every 500 points
+      const newLevel = Math.floor(score / 500) + 1;
+      if (newLevel !== level) {
+        level = newLevel;
+        levelVal.innerText = level;
+        gameSpeed = baseSpeed + (level - 1) * 1.5;
+        playLevelUpSound();
+
+        // Trigger visual alert
+        levelPopup.style.opacity = '1';
+        setTimeout(() => { levelPopup.style.opacity = '0'; }, 1500);
+      }
+
+      speedVal.innerText = Math.floor(gameSpeed * 18); // Convert to realistic-looking km/h
+      updateEngineSound(gameSpeed);
+
+      // Spawn traffic at dynamic rates based on level
+      if (Math.random() < 0.02 + level * 0.005) {
+        spawnTraffic();
+      }
+
+      // Move and check traffic cars
+      for (let i = traffic.length - 1; i >= 0; i--) {
+        let t = traffic[i];
+        t.y += gameSpeed - t.speed;
+
+        // Collision Check (AABB)
+        if (
+          player.x < t.x + t.width &&
+          player.x + player.width > t.x &&
+          player.y < t.y + t.height &&
+          player.y + player.height > t.y
+        ) {
+          gameOver();
+          return;
+        }
+
+        // Remove off-screen cars
+        if (t.y > canvas.height + 100) {
+          traffic.splice(i, 1);
+        }
+      }
+    }
+
+    function render() {
+      // Clear Screen
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      // Draw elements
+      drawRoad();
+      drawCar(player.x, player.y, player.width, player.height, player.color, true);
+
+      traffic.forEach(t => {
+        drawCar(t.x, t.y, t.width, t.height, t.color, false);
+      });
+    }
+
+    function gameLoop() {
+      update();
+      render();
+      if (isRunning) {
+        requestAnimationFrame(gameLoop);
+      }
+    }
+
+    function startGame() {
+      initAudio();
+      stopEngineSound();
+      startEngineSound();
+
+      // Reset values
+      score = 0;
+      level = 1;
+      gameSpeed = baseSpeed;
+      traffic = [];
+      player.x = canvas.width / 2 - 20;
+
+      scoreVal.innerText = score;
+      levelVal.innerText = level;
+      speedVal.innerText = Math.floor(gameSpeed * 18);
+
+      startScreen.style.display = 'none';
+      gameoverScreen.style.display = 'none';
+
+      isRunning = true;
+      requestAnimationFrame(gameLoop);
+    }
+
+    function gameOver() {
+      isRunning = false;
+      stopEngineSound();
+      playCrashSound();
+
+      finalStats.innerText = `Final Score: ${score} | Level Reached: ${level}`;
+      gameoverScreen.style.display = 'flex';
+    }
+  </script>
+</body>
+</html>
